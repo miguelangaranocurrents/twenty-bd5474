@@ -8,7 +8,8 @@ import { useAtomComponentState } from '@/ui/utilities/state/jotai/hooks/useAtomC
 import { useAtomComponentStateValue } from '@/ui/utilities/state/jotai/hooks/useAtomComponentStateValue';
 import { useSetAtomComponentState } from '@/ui/utilities/state/jotai/hooks/useSetAtomComponentState';
 import { type View } from '@/views/types/View';
-import { useUpdateViewFromCurrentState } from '@/views/view-picker/hooks/useUpdateViewFromCurrentState';
+import { usePerformViewApiUpdate } from '@/views/hooks/internal/usePerformViewApiUpdate';
+import { viewPickerInputNameComponentState } from '@/views/view-picker/states/viewPickerInputNameComponentState';
 import { viewPickerIsDirtyComponentState } from '@/views/view-picker/states/viewPickerIsDirtyComponentState';
 import { viewPickerIsPersistingComponentState } from '@/views/view-picker/states/viewPickerIsPersistingComponentState';
 import { viewPickerSelectedIconComponentState } from '@/views/view-picker/states/viewPickerSelectedIconComponentState';
@@ -70,15 +71,22 @@ export const ObjectOptionsDropdownMenuViewName = ({
   const setViewPickerIsDirty = useSetAtomComponentState(
     viewPickerIsDirtyComponentState,
   );
+  const setViewPickerInputName = useSetAtomComponentState(
+    viewPickerInputNameComponentState,
+  );
 
   const { setAndPersistViewName, setAndPersistViewIcon } =
     useUpdateObjectViewOptions();
 
-  const { updateViewFromCurrentState } = useUpdateViewFromCurrentState();
+  const { performViewApiUpdate } = usePerformViewApiUpdate();
   const [viewName, setViewName] = useState(currentView?.name);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const { dropdownId } = useObjectOptionsDropdown();
+
+  const handleViewNameChange = useDebouncedCallback((value: string) => {
+    setAndPersistViewName(value, currentView);
+  }, 500);
 
   useHotkeysOnFocusedElement({
     keys: [Key.Enter],
@@ -87,10 +95,26 @@ export const ObjectOptionsDropdownMenuViewName = ({
         return;
       }
 
-      await updateViewFromCurrentState();
+      // Persist the name typed in this input for the current view directly:
+      // the view picker states (reference view id, visibility...) are not
+      // initialized when the view is edited from the Options menu
+      handleViewNameChange.cancel();
+      setViewPickerInputName(viewName);
+
+      await performViewApiUpdate({
+        id: currentView.id,
+        input: { name: viewName },
+      });
     },
     focusId: dropdownId,
-    dependencies: [viewPickerIsPersisting, updateViewFromCurrentState],
+    dependencies: [
+      viewPickerIsPersisting,
+      performViewApiUpdate,
+      handleViewNameChange,
+      setViewPickerInputName,
+      currentView.id,
+      viewName,
+    ],
   });
 
   const handleIconChange = ({ iconKey }: { iconKey: string }) => {
@@ -98,10 +122,6 @@ export const ObjectOptionsDropdownMenuViewName = ({
     setViewPickerSelectedIcon(iconKey);
     setAndPersistViewIcon(iconKey, currentView);
   };
-
-  const handleViewNameChange = useDebouncedCallback((value: string) => {
-    setAndPersistViewName(value, currentView);
-  }, 500);
 
   useEffect(() => {
     setViewPickerSelectedIcon(currentView.icon);
